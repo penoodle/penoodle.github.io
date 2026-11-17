@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Penoodle: Local-First Web Annotation</title>
+<meta name="description" content="Technical report: the design of Penoodle, a local-first browser extension for annotating web pages and PDFs, with end-to-end encrypted sync and zero-knowledge share links.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #fdfcfa;
+    --surface: #f4f1ec;
+    --text: #1d1b19;
+    --muted: #5c5650;
+    --rule: #d9d3ca;
+    --accent: #9d1756;
+    --accent-soft: #f7e4ec;
+    --code-bg: #efebe5;
+    --fig-stroke: #4a4540;
+    --fig-fill: #ffffff;
+    --fig-fill-2: #f7e4ec;
+    --fig-fill-3: #e6eef6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161514;
+      --surface: #201e1c;
+      --text: #ece8e3;
+      --muted: #aaa39b;
+      --rule: #3a3633;
+      --accent: #f4a3c6;
+      --accent-soft: #3a1f2b;
+      --code-bg: #262320;
+      --fig-stroke: #c9c2ba;
+      --fig-fill: #201e1c;
+      --fig-fill-2: #3a1f2b;
+      --fig-fill-3: #1f2a36;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161514; --surface: #201e1c; --text: #ece8e3; --muted: #aaa39b; --rule: #3a3633;
+    --accent: #f4a3c6; --accent-soft: #3a1f2b; --code-bg: #262320;
+    --fig-stroke: #c9c2ba; --fig-fill: #201e1c; --fig-fill-2: #3a1f2b; --fig-fill-3: #1f2a36;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 18px/1.65 "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 16px 80px; }
+  header.paper { text-align: center; border-bottom: 1px solid var(--rule); padding-bottom: 28px; margin-bottom: 32px; }
+  .kind { font: 600 12px/1.4 system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+  h1 { font-size: clamp(28px, 5vw, 38px); line-height: 1.2; margin: 0 0 14px; font-weight: 600; }
+  .byline { color: var(--muted); margin: 0; font-size: 16px; }
+  .byline a { color: inherit; }
+  .abstract { background: var(--surface); border-left: 3px solid var(--accent); padding: 18px 22px; margin: 0 0 36px; }
+  .abstract h2 { font: 600 13px/1.4 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; margin: 0 0 8px; color: var(--muted); }
+  .abstract p { margin: 0; }
+  .keywords { font-size: 15px; color: var(--muted); margin-top: 12px !important; }
+  nav.toc { font: 15px/1.6 system-ui, sans-serif; margin: 0 0 40px; }
+  nav.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+  @media (max-width: 560px) { nav.toc ol { columns: 1; } }
+  nav.toc a { color: var(--text); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+  h2 { font-size: 24px; margin: 48px 0 12px; font-weight: 600; }
+  h3 { font-size: 19px; margin: 28px 0 8px; font-weight: 600; }
+  h2 .n, h3 .n { color: var(--accent); margin-right: .4em; font-variant-numeric: tabular-nums; }
+  p { margin: 0 0 16px; hyphens: auto; }
+  a { color: var(--accent); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code { font: 15px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 14px 16px; overflow-x: auto; border-radius: 4px; font: 14px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; margin: 0 0 18px; }
+  pre code { background: none; padding: 0; }
+  ul, ol { padding-left: 24px; margin: 0 0 16px; }
+  li { margin-bottom: 6px; }
+  figure { margin: 28px 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-size: 15px; color: var(--muted); margin-top: 10px; }
+  figcaption b { color: var(--text); }
+  .table-wrap { overflow-x: auto; margin: 0 0 20px; }
+  table { border-collapse: collapse; width: 100%; font: 15px/1.45 system-ui, sans-serif; }
+  caption { caption-side: top; text-align: left; font-size: 15px; color: var(--muted); padding-bottom: 8px; font-family: inherit; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
+  th { font-weight: 600; border-bottom: 2px solid var(--fig-stroke); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .refs ol { font-size: 15px; padding-left: 28px; }
+  .refs li { margin-bottom: 8px; }
+  footer { border-top: 1px solid var(--rule); margin-top: 56px; padding-top: 20px; font: 14px/1.6 system-ui, sans-serif; color: var(--muted); display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
+  .theme-btn { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  .fig text { font: 13px system-ui, sans-serif; fill: var(--text); }
+  .fig .small { font-size: 11px; fill: var(--muted); }
+  .fig .box { fill: var(--fig-fill); stroke: var(--fig-stroke); stroke-width: 1.2; }
+  .fig .box2 { fill: var(--fig-fill-2); stroke: var(--fig-stroke); stroke-width: 1.2; }
+  .fig .box3 { fill: var(--fig-fill-3); stroke: var(--fig-stroke); stroke-width: 1.2; }
+  .fig .zone { fill: none; stroke: var(--fig-stroke); stroke-width: 1; stroke-dasharray: 5 4; }
+  .fig .line { stroke: var(--fig-stroke); stroke-width: 1.3; fill: none; }
+  .fig .arrowhead { fill: var(--fig-stroke); }
+  .fig .label { font-weight: 600; }
+  @media print {
+    footer .theme-btn, nav.toc { display: none; }
+    body { background: #fff; color: #000; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="paper">
+    <p class="kind">Technical report · November 2026</p>
+    <h1>Penoodle: Local-First Annotation of the Web with End-to-End Encrypted Sync and Zero-Knowledge Sharing</h1>
+    <p class="byline">The Penoodle Project · <a href="https://github.com/penoodle">github.com/penoodle</a></p>
+  </header>
+
+  <section class="abstract" aria-labelledby="abstract-h">
+    <h2 id="abstract-h">Abstract</h2>
+    <p>Web annotation tools usually make a server the source of truth: notes live in the cloud, need an account, and are readable by whoever runs the service. Penoodle is a browser extension for annotating web pages and PDFs (sticky notes, text highlights, freehand drawing, whiteboards and diagrams) built the other way round. Every feature that can run on the device runs signed out and offline. An optional account adds services that need a server: sync across devices, share links and live co-viewing. These are designed so the server stores only ciphertext and never learns page URLs, annotation text or keys. This report describes the architecture, the data model built on hybrid logical clocks and durable deletion markers, the key hierarchy for sync, the format of encrypted share links, and the testing and accessibility practice used to keep the system correct.</p>
+    <p class="keywords"><b>Keywords:</b> local-first software, web annotation, end-to-end encryption, hybrid logical clocks, browser extensions, accessibility</p>
+  </section>
+
+  <nav class="toc" aria-label="Contents">
+    <b>Contents</b>
+    <ol>
+      <li><a href="#intro">Introduction</a></li>
+      <li><a href="#goals">Design goals</a></li>
+      <li><a href="#arch">System architecture</a></li>
+      <li><a href="#data">Data model on the device</a></li>
+      <li><a href="#sync">End-to-end encrypted sync</a></li>
+      <li><a href="#share">Zero-knowledge share links</a></li>
+      <li><a href="#live">Live projection</a></li>
+      <li><a href="#auth">Sessions and authentication</a></li>
+      <li><a href="#a11y">Accessibility</a></li>
+      <li><a href="#eval">Verification</a></li>
+      <li><a href="#limits">Limitations and future work</a></li>
+      <li><a href="#concl">Conclusion</a></li>
+    </ol>
+  </nav>
+
+  <section id="intro">
+    <h2><span class="n">1</span>Introduction</h2>
+    <p>Reading on the web is active work: people highlight, write in the margin, sketch over diagrams and come back weeks later expecting the marks to still be there. Pages, however, are not documents a reader owns. They change layout, re-render on every visit and are often served from origins the reader cannot write to. An annotation layer therefore has to live beside the page: it must find its place again on each visit, persist somewhere the reader controls, and, when shared, travel without exposing more than intended.</p>
+    <p>Most existing tools solve persistence by uploading every annotation to a service. That choice brings convenience across devices, but it also makes the account a prerequisite, turns the vendor into a reader of everything annotated, and leaves the work unusable offline. The local-first approach [1] suggests another order of priorities: the device holds the primary copy, the network is an optimisation, and collaboration must not cost the user ownership or privacy.</p>
+    <p>Penoodle applies that approach to web annotation. The contributions described here are:</p>
+    <ul>
+      <li>a <b>local-first feature boundary</b>: everything that runs on the device works with no account and no network, and only features that need a server (sync, sharing, live sessions) depend on signing in;</li>
+      <li>a <b>per-annotation revision scheme</b> using hybrid logical clocks [2] with deletion markers kept long enough for an offline device to learn about deletions, which makes merging deterministic without a central sequencer;</li>
+      <li><b>end-to-end encrypted sync</b> in which the server stores opaque records keyed by an HMAC of the page URL, and cannot read, re-target or forge records;</li>
+      <li><b>share links whose key lives only in the URL fragment</b>, so a recipient with no account and no extension can read shared annotations while the server holds only ciphertext.</li>
+    </ul>
+  </section>
+
+  <section id="goals">
+    <h2><span class="n">2</span>Design goals</h2>
+    <ol>
+      <li><b>Offline by default.</b> Drawing, notes, highlights, screenshots, export, the PDF viewer, whiteboards and diagrams work signed out and without a network. Work made before signing in moves into the account at sign-in instead of being lost.</li>
+      <li><b>The server is not trusted with content.</b> Where data must cross the network, it is encrypted on the device with keys the server never receives.</li>
+      <li><b>Nothing silently disappears.</b> Every change gets a revision; deleted items go to a trash and can be restored, and earlier versions of a page's annotations can be brought back.</li>
+      <li><b>The page is not disturbed.</b> The in-page interface is isolated from the host page's styles and scripts, and the page's own content is never rewritten to store annotations.</li>
+      <li><b>Usable by everyone.</b> Every surface meets WCAG 2.1 AA [7] in light and dark themes, and is operable by keyboard and screen reader.</li>
+    </ol>
+  </section>
+
+  <section id="arch">
+    <h2><span class="n">3</span>System architecture</h2>
+    <p>Penoodle is a Manifest V3 browser extension for Chromium-based browsers, plus a small set of optional services (Figure 1).</p>
+    <figure>
+      <svg class="fig" viewBox="0 0 720 420" role="img" aria-labelledby="fig1-t fig1-d">
+        <title id="fig1-t">Figure 1: System architecture</title>
+        <desc id="fig1-d">On the device, the content script, extension pages and service worker share local storage and IndexedDB. Only the service worker talks to the optional servers: ExtServer over HTTPS for auth, encrypted sync and shares, and EdgeServer over WebSocket for live projection, which is backed by ProjectionServer, EventServer and Redis.</desc>
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="arrowhead"/></marker></defs>
+        <rect class="zone" x="10" y="10" width="340" height="400" rx="8"/>
+        <text x="24" y="34" class="label">Browser (the device)</text>
+        <rect class="box" x="30" y="52" width="140" height="70" rx="6"/>
+        <text x="100" y="82" text-anchor="middle" class="label">Content script</text>
+        <text x="100" y="101" text-anchor="middle" class="small">UI in a closed shadow root</text>
+        <rect class="box" x="190" y="52" width="140" height="70" rx="6"/>
+        <text x="260" y="82" text-anchor="middle" class="label">Extension pages</text>
+        <text x="260" y="101" text-anchor="middle" class="small">workspace, PDF, diagram</text>
+        <rect class="box2" x="30" y="170" width="300" height="80" rx="6"/>
+        <text x="180" y="200" text-anchor="middle" class="label">Service worker</text>
+        <text x="180" y="220" text-anchor="middle" class="small">auth sessions · sync engine · relays</text>
+        <text x="180" y="236" text-anchor="middle" class="small">the only component that talks to servers</text>
+        <rect class="box3" x="30" y="300" width="300" height="88" rx="6"/>
+        <text x="180" y="328" text-anchor="middle" class="label">Local storage + IndexedDB</text>
+        <text x="180" y="348" text-anchor="middle" class="small">encrypted annotations, revisions, trash,</text>
+        <text x="180" y="364" text-anchor="middle" class="small">PDFs, non-extractable sync keys</text>
+        <path class="line" d="M100 122V170" marker-end="url(#ah)" marker-start="url(#ah)"/>
+        <path class="line" d="M260 122V170" marker-end="url(#ah)" marker-start="url(#ah)"/>
+        <path class="line" d="M180 250V300" marker-end="url(#ah)" marker-start="url(#ah)"/>
+        <rect class="zone" x="390" y="10" width="320" height="400" rx="8"/>
+        <text x="404" y="34" class="label">Optional services</text>
+        <rect class="box" x="410" y="52" width="280" height="80" rx="6"/>
+        <text x="550" y="82" text-anchor="middle" class="label">ExtServer (HTTPS API)</text>
+        <text x="550" y="101" text-anchor="middle" class="small">accounts · ciphertext-only sync records</text>
+        <text x="550" y="117" text-anchor="middle" class="small">ciphertext-only shares · plans</text>
+        <rect class="box" x="410" y="170" width="280" height="62" rx="6"/>
+        <text x="550" y="197" text-anchor="middle" class="label">EdgeServer (WebSocket)</text>
+        <text x="550" y="216" text-anchor="middle" class="small">live projection gateway</text>
+        <rect class="box" x="410" y="262" width="130" height="62" rx="6"/>
+        <text x="475" y="289" text-anchor="middle" class="label">Projection</text>
+        <text x="475" y="306" text-anchor="middle" class="small">room manager</text>
+        <rect class="box" x="560" y="262" width="130" height="62" rx="6"/>
+        <text x="625" y="289" text-anchor="middle" class="label">EventServer</text>
+        <text x="625" y="306" text-anchor="middle" class="small">plan updates</text>
+        <rect class="box3" x="410" y="344" width="280" height="44" rx="6"/>
+        <text x="550" y="371" text-anchor="middle" class="label">Redis</text>
+        <path class="line" d="M330 196C370 196 370 92 410 92" marker-end="url(#ah)"/>
+        <path class="line" d="M330 214H410" marker-end="url(#ah)"/>
+        <path class="line" d="M475 232V262" marker-end="url(#ah)" marker-start="url(#ah)"/>
+        <path class="line" d="M625 232V262" marker-end="url(#ah)" marker-start="url(#ah)"/>
+        <path class="line" d="M475 324V344"/>
+        <path class="line" d="M625 324V344"/>
+        <path class="line" d="M650 132V170" marker-end="url(#ah)"/>
+      </svg>
+      <figcaption><b>Figure 1.</b> Components and trust boundary. Everything left of the boundary works without the services on the right. Content leaves the device encrypted.</figcaption>
+    </figure>
+    <p><b>Content script.</b> On each page, the content script mounts the interface (toolbar, annotation panel, sticky notes, drawing canvas) inside a closed shadow root. This shields it from the page's CSS and keeps page scripts away from its DOM. It loads the page's annotations from local storage, renders them and saves edits automatically. Text highlights are anchored with text-quote selectors in the style of the W3C Web Annotation model [6], so they reattach after layout changes. Inside the extension, components communicate over an event bus and typed runtime messages with timeouts.</p>
+    <p><b>Extension pages.</b> A whiteboard and PDF workspace, a diagram designer, a reader, a library of all annotated pages, and pages for sync settings and invitations. They use the same storage layer as the content script.</p>
+    <p><b>Service worker.</b> It owns authentication state, runs the sync engine and relays every server call. Concentrating network access in one component gives a single place to enforce which account a request belongs to, refresh tokens one at a time, and refuse messages from unexpected senders.</p>
+    <p><b>Services.</b> <i>ExtServer</i> is an HTTP API for accounts, plans, sync records and shares. <i>EdgeServer</i>, <i>ProjectionServer</i> and <i>EventServer</i> carry live sessions and plan-change notifications over WebSockets and Redis. A <i>MonitorServer</i> aggregates health checks.</p>
+  </section>
+
+  <section id="data">
+    <h2><span class="n">4</span>Data model on the device</h2>
+    <h3><span class="n">4.1</span>Storage and ownership</h3>
+    <p>Annotations for a page are stored as one encrypted entry keyed by an owner scope and the SHA-256 of the normalised page URL. Normalisation (dropping fragments and tracking parameters, for example) makes a page and its trivial variants share one entry. The owner scope is <code>local</code> when signed out and the account's key when signed in. At sign-in, local work is migrated into the account scope, so creating an account never costs the user what they made offline. Large objects such as PDFs and diagram sessions live in IndexedDB.</p>
+    <p>All writes go through a single store that performs read-modify-write under a per-page lock. No caller may load an entry, change it and write it back on its own, because two tabs doing that concurrently would lose one of the edits.</p>
+
+    <h3><span class="n">4.2</span>Revisions with hybrid logical clocks</h3>
+    <p>Each annotation carries a revision issued by a hybrid logical clock (HLC) [2]. A revision is a fixed-width string</p>
+    <pre><code>MMMMMMMMMMMMM-CCCC-DDDDDDDDXXXX
+13-digit ms   counter  device id (8) + context id (4)</code></pre>
+    <p>so revisions compare in time order by plain string comparison. <code>tick()</code> returns a revision greater than any the clock has issued or observed, and <code>observe(rev)</code> moves the clock past a remote revision. A device whose wall clock runs behind therefore never issues a revision lower than one it has already seen. The device id is 8 random base32 characters, created once per browser profile. The context id separates two tabs on the same device that write in the same millisecond. The store stamps revisions centrally: an annotation gets a new revision only when its content actually changed, compared as stable JSON without the revision field.</p>
+
+    <h3><span class="n">4.3</span>Trash, deletion markers and history</h3>
+    <p>Whenever an annotation id leaves a page's list, by an explicit delete, a whole-canvas save, a restore or an incoming sync, the store moves it to an encrypted trash with its own new revision. The deleted content is kept for 30 days so the user can restore it. The marker (id and revision) is kept for 180 days. That window is how long a device can stay offline and still learn of the deletion, instead of resurrecting the item on its next sync. The store also keeps the last ten snapshots of each page, and restoring one first saves the current state as a snapshot, so a restore can itself be undone.</p>
+    <p>With revisions and markers, merging is a per-item rule with no central coordinator: <em>for each id, the highest revision wins, whether it is an edit or a deletion.</em> The rule is commutative, associative and idempotent, so devices converge whatever order they receive changes in.</p>
+  </section>
+
+  <section id="sync">
+    <h2><span class="n">5</span>End-to-end encrypted sync</h2>
+    <h3><span class="n">5.1</span>Key hierarchy</h3>
+    <p>The first device to turn sync on creates a 32-byte data-encryption key (DEK). HKDF-SHA256 [3] derives two subkeys from it: an AES-GCM-256 key [4] for record contents and an HMAC-SHA256 key for page identifiers. The DEK is wrapped twice:</p>
+    <ul>
+      <li>by a key derived from the user's <b>passphrase</b> (PBKDF2-SHA256 [5], 600,000 iterations, random salt, at least 10 characters after Unicode NFC normalisation);</li>
+      <li>by a key derived from a <b>recovery code</b> of 26 base32 characters (130 bits), shown once and confirmed by retyping its last group.</li>
+    </ul>
+    <p>The server stores only the keyset: the two salts, iteration counts and wrapped copies of the DEK, plus a key identifier. On an unlocked device, the subkeys are kept as non-extractable WebCrypto keys in IndexedDB. The DEK itself is never stored, and its buffers are zeroed after use. Changing the passphrase or recovery code is a compare-and-swap on the keyset, so two devices cannot overwrite each other's change.</p>
+
+    <h3><span class="n">5.2</span>Records</h3>
+    <p>A sync record is one annotation or one deletion marker:</p>
+    <pre><code>{ pageKey, entryId, rev, deleted, ciphertext }
+pageKey    = base64url(HMAC(pageSubkey, normalisedUrl))[0..32]
+ciphertext = iv(12) ‖ AES-GCM(encSubkey, payload,
+             AAD = pageKey | entryId | rev | deleted)</code></pre>
+    <p>The server sees neither URLs nor content. It sees opaque page keys, ids, revisions and ciphertext. Because the metadata is bound into the AEAD's additional data, the server cannot change a record's revision, flip it between edit and deletion, or move it to another item without decryption failing. After decrypting, the client also recomputes the page key from the URL inside the payload and rejects a mismatch, so a record cannot be replayed onto a different page. A record that fails any check is skipped and counted in the sync status, never applied.</p>
+
+    <h3><span class="n">5.3</span>Engine</h3>
+    <p>The sync engine runs in the service worker when an account is signed in, the plan allows sync and this device holds unlocked keys. It is triggered at start-up, every two minutes, ten seconds after local changes settle, and on demand. One sync runs at a time, and errors back off from one to thirty minutes. Each run <em>pulls</em> records after a server-assigned cursor, decrypts them, and applies them page by page with the merge rule of §4.3 under that page's lock. It then <em>pushes</em> every item whose revision differs from what was last acknowledged. Revisions that arrived by pull are recorded as acknowledged, so they are never echoed back. Open tabs showing a changed page are told to reload its annotations.</p>
+    <p>The API client is bound to one account. If the stored session turns out to belong to another account (after a sign-out and sign-in in another window, say), requests fail before they are sent, so one account's data can never be pushed into another's.</p>
+  </section>
+
+  <section id="share">
+    <h2><span class="n">6</span>Zero-knowledge share links</h2>
+    <p>A share link has the form</p>
+    <pre><code>https://&lt;host&gt;/share/&lt;shareId&gt;#k=&lt;key&gt;</code></pre>
+    <p>The extension generates the share id and a fresh 32-byte key, and encrypts the page's shareable annotations (with an optional note from the sharer) using AES-GCM, with <code>penoodle-share-v1|&lt;shareId&gt;</code> as additional data. It then uploads only the ciphertext under that id. Browsers do not send the fragment to servers, so the key never reaches the server; viewer pages also send <code>Referrer-Policy: no-referrer</code>. A recipient without the extension opens the link in any browser, where a static viewer decrypts in the page. A recipient with the extension sees the annotations as a read-only layer on the live page and can add them to their own, merged rather than replaced. The same dependency-free WebCrypto module produces and opens links in the extension and the web viewer, so the two cannot drift apart.</p>
+  </section>
+
+  <section id="live">
+    <h2><span class="n">7</span>Live projection</h2>
+    <p>For teaching and review, a host can project a page or whiteboard to receivers in real time. The service worker keeps one WebSocket to an EdgeServer gateway. Rooms are managed by a ProjectionServer, and room membership and server registration live in Redis, so gateways can scale horizontally and a receiver can join through any of them. The host decides whether receivers may draw, and that permission applies to people who join later as well. Live sessions are one of the few features that depend on an account, because they need a server to relay strokes between people.</p>
+  </section>
+
+  <section id="auth">
+    <h2><span class="n">8</span>Sessions and authentication</h2>
+    <p>Accounts use short-lived signed access tokens bound to a per-device session, plus a refresh token of the form <code>&lt;sessionId&gt;.&lt;secret&gt;</code> that is rotated on every use. Presenting an already-used refresh token is treated as theft and revokes the session. Only the service worker refreshes, with a single request in flight. Web pages that complete a sign-in hand the token to the extension once and do not keep it. Password-reset and email-verification tokens travel only in URL fragments, are single-use and are stored hashed. Server pages are served with a Content Security Policy that forbids inline script and style. Audit logs never record tokens, keys, ciphertext, passwords or reset links.</p>
+  </section>
+
+  <section id="a11y">
+    <h2><span class="n">9</span>Accessibility</h2>
+    <p>Every surface, including in-page UI, extension pages and server pages, is designed to WCAG 2.1 AA [7] in both light and dark themes, and the diagram designer in five canvas themes. Contrast is measured against the real backdrop, including each stop of a gradient and stacked translucent layers. Focus rings must reach 3:1 against the surface around the control. Dialogs trap focus, menus follow the WAI-ARIA patterns, status messages use live regions, and animations respect <code>prefers-reduced-motion</code>.</p>
+    <p>A closed shadow root introduces a problem of its own: users' text-spacing tools (user stylesheets, reading extensions) cannot reach it. Penoodle therefore offers the WCAG 1.4.12 spacing values (1.5 line height, 0.12em letter spacing and so on) as a built-in preference that applies to the in-page UI and every extension page, and tests that no text is clipped when it is on.</p>
+  </section>
+
+  <section id="eval">
+    <h2><span class="n">10</span>Verification</h2>
+    <p>Correctness is checked by an automated suite kept in its own repository and run against the extension and the services side by side.</p>
+    <div class="table-wrap">
+      <table>
+        <caption>Table 1. Automated test suite (November 2026).</caption>
+        <thead><tr><th scope="col">Layer</th><th scope="col">Tool</th><th scope="col">Size</th><th scope="col">What it covers</th></tr></thead>
+        <tbody>
+          <tr><td>Unit</td><td>Vitest + jsdom</td><td class="num">38 files</td><td>HLC ordering and clock skew, storage merge rule, sync crypto, share-link format, design-token contrast</td></tr>
+          <tr><td>API</td><td>Vitest + Supertest</td><td class="num">19 files</td><td>Sessions and token rotation, sync records and quotas, shares, plans, against in-memory and MongoDB stores</td></tr>
+          <tr><td colspan="2">Unit and API combined</td><td class="num">≈1,090 tests</td><td></td></tr>
+          <tr><td>End to end</td><td>Playwright, real Chromium with the extension loaded</td><td class="num">53 specs, ≈370 tests</td><td>Notes, highlights, drawing, history, sync between two profiles, share links, offline mode, XSS hardening, accessibility audits</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Accessibility is enforced the same way as functional behaviour: the end-to-end suite runs axe-core [8] together with custom checks for gradients, translucent layers, field boundaries and focus rings on every surface in both themes, so a regression fails the build. Security properties such as the server's refusal of tampered records, page-key mismatch and replayed refresh tokens are tested directly, not assumed.</p>
+  </section>
+
+  <section id="limits">
+    <h2><span class="n">11</span>Limitations and future work</h2>
+    <ul>
+      <li><b>Metadata.</b> The server still learns how many records an account has, their sizes, revision timestamps and when devices sync. Padding and batching could reduce this.</li>
+      <li><b>Granularity.</b> Merging is per annotation: two concurrent edits to the <em>same</em> sticky note resolve to the later one. Character-level CRDTs for note text would preserve both.</li>
+      <li><b>Offline horizon.</b> A device offline for more than 180 days may miss deletions whose markers have expired.</li>
+      <li><b>Key loss.</b> Losing both the passphrase and the recovery code makes synced data unrecoverable from the server by design. Data already on devices is unaffected.</li>
+      <li><b>Anchoring.</b> Text-quote anchoring can fail on pages whose text changes substantially. The annotation stays in storage rather than being deleted, but it cannot be shown in place; surfacing such annotations to the user is future work.</li>
+    </ul>
+  </section>
+
+  <section id="concl">
+    <h2><span class="n">12</span>Conclusion</h2>
+    <p>Penoodle shows that a feature-rich annotation tool can treat the device as the home of the user's work and the server as an untrusted courier. Three mechanisms, each simple, carry most of the weight: hybrid-logical-clock revisions with long-lived deletion markers make merging deterministic; authenticated encryption with metadata bound into the additional data lets the server store and order records it cannot read or alter; and keeping share keys in the URL fragment makes sharing work without an account or the extension while the server holds only ciphertext.</p>
+  </section>
+
+  <section class="refs" id="refs">
+    <h2>References</h2>
+    <ol>
+      <li>M. Kleppmann, A. Wiggins, P. van Hardenberg, M. McGranaghan. “Local-first software: you own your data, in spite of the cloud.” <i>Onward! 2019</i>, ACM.</li>
+      <li>S. Kulkarni, M. Demirbas, D. Madappa, B. Avva, M. Leone. “Logical Physical Clocks.” <i>OPODIS 2014</i>, LNCS 8878.</li>
+      <li>H. Krawczyk, P. Eronen. “HMAC-based Extract-and-Expand Key Derivation Function (HKDF).” RFC 5869, 2010.</li>
+      <li>M. Dworkin. “Recommendation for Block Cipher Modes of Operation: Galois/Counter Mode (GCM) and GMAC.” NIST SP 800-38D, 2007.</li>
+      <li>K. Moriarty, B. Kaliski, A. Rusch. “PKCS #5: Password-Based Cryptography Specification Version 2.1.” RFC 8018, 2017.</li>
+      <li>R. Sanderson, P. Ciccarese, B. Young (eds.). “Web Annotation Data Model.” W3C Recommendation, 2017.</li>
+      <li>W3C. “Web Content Accessibility Guidelines (WCAG) 2.1.” W3C Recommendation, 2018.</li>
+      <li>Deque Systems. “axe-core: accessibility engine for automated web UI testing.”</li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>© 2026 Penoodle. All rights reserved.</span>
+    <button type="button" class="theme-btn" id="theme-btn" aria-pressed="false">Dark theme</button>
+  </footer>
+</main>
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('theme-btn');
+  function isDark() {
+    var t = root.getAttribute('data-theme');
+    if (t) return t === 'dark';
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function sync() {
+    var dark = isDark();
+    btn.textContent = dark ? 'Light theme' : 'Dark theme';
+    btn.setAttribute('aria-pressed', String(dark));
+  }
+  try { var saved = localStorage.getItem('penoodle-paper-theme'); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  btn.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('penoodle-paper-theme', next); } catch (e) {}
+    sync();
+  });
+  sync();
+})();
+</script>
+</body>
+</html>
